@@ -273,7 +273,8 @@ class KeepAliveService : AccessibilityService(), SharedPreferences.OnSharedPrefe
 
         if (Settings.canDrawOverlays(this)) {
             windowManager.addView(floatView, windowLayoutParams.apply {
-                x = (screenWidth - floatingButtonWidth) / 2 * config.positionX
+                x = (screenWidth - floatingButtonWidth) / 2 * config.positionX +
+                        (if (screenRotation == 1) config.dragOffsetPortraitX else config.dragOffsetLandscapeX)
                 y = if (screenRotation == 1) config.positionPortraitY else config.positionLandscapeY
                 width = floatingButtonWidth
                 height = floatingButtonHeight
@@ -319,28 +320,36 @@ class KeepAliveService : AccessibilityService(), SharedPreferences.OnSharedPrefe
             getIntSp("floating_position_x", -1),
             getIntSp("floating_position_portrait_y", 0),
             getIntSp("floating_position_landscape_y", 0),
-            getIntSp("floating_alpha", 10) / 10f
+            getIntSp("floating_alpha", 10) / 10f,
+            getIntSp("floating_drag_offset_portrait_x", 0),
+            getIntSp("floating_drag_offset_landscape_x", 0)
         )
     }
 
-    private fun handleMove(dy: Float) {
+    private fun handleMove(dx: Float, dy: Float) {
+        val floatingButtonWidth = resources.getDimension(R.dimen.floating_button_width).toInt()
+        val maxOffsetX = (screenWidth - floatingButtonWidth) / 2
+
         if (screenRotation == Configuration.ORIENTATION_PORTRAIT) {
             config.positionPortraitY = max(screenHeight / -2, min(screenHeight / 2, config.positionPortraitY + dy.roundToInt()))
+            config.dragOffsetPortraitX = max(-maxOffsetX, min(maxOffsetX, config.dragOffsetPortraitX + dx.roundToInt()))
         }
         else {
             config.positionLandscapeY = max(screenHeight / -2, min(screenHeight / 2, config.positionLandscapeY + dy.roundToInt()))
+            config.dragOffsetLandscapeX = max(-maxOffsetX, min(maxOffsetX, config.dragOffsetLandscapeX + dx.roundToInt()))
         }
 
         windowManager.updateViewLayout(
             floatView,
             windowLayoutParams.apply {
+                x = max(-maxOffsetX, min(maxOffsetX, x + dx.roundToInt()))
                 y  = max(screenHeight / -2, min(screenHeight / 2, y + dy.roundToInt()))
             }
         )
     }
 
     //拖动时展示当前坐标的小提示框
-    private fun showLocationIndicator(y: Int) {
+    private fun showLocationIndicator(x: Int, y: Int) {
         if (!getBooleanSp("floating_show_location", false)) return
         if (locationIndicatorView == null) {
             locationIndicatorView = TextView(this).apply {
@@ -358,12 +367,12 @@ class KeepAliveService : AccessibilityService(), SharedPreferences.OnSharedPrefe
                     PixelFormat.TRANSLUCENT
                 ).apply {
                     gravity = Gravity.TOP or Gravity.START
-                    x = 20
+                    this.x = 20
                     this.y = 100
                 })
             } catch (e: Exception) {}
         }
-        locationIndicatorView?.text = "y: $y"
+        locationIndicatorView?.text = "x: $x  y: $y"
     }
 
     private fun hideLocationIndicator() {
@@ -374,26 +383,38 @@ class KeepAliveService : AccessibilityService(), SharedPreferences.OnSharedPrefe
     }
 
     //按下时的坐标
+    private var lastX = -1f
     private var lastY = -1f
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouch(v: View, event: MotionEvent): Boolean {
         gestureDetector.onTouchEvent(event)
         when(event.action) {
             MotionEvent.ACTION_DOWN -> {
+                lastX = event.rawX
                 lastY = event.rawY
             }
             MotionEvent.ACTION_MOVE -> {
                 if (touchMode == SCROLL) {
+                    val dx = event.rawX - lastX
                     val dy = event.rawY - lastY
-                    handleMove(dy)
+                    handleMove(dx, dy)
+                    lastX = event.rawX
                     lastY = event.rawY
-                    showLocationIndicator(if (screenRotation == Configuration.ORIENTATION_PORTRAIT) config.positionPortraitY else config.positionLandscapeY)
+                    showLocationIndicator(
+                        if (screenRotation == Configuration.ORIENTATION_PORTRAIT) config.dragOffsetPortraitX else config.dragOffsetLandscapeX,
+                        if (screenRotation == Configuration.ORIENTATION_PORTRAIT) config.positionPortraitY else config.positionLandscapeY
+                    )
                 }
             }
             MotionEvent.ACTION_UP -> {
                 if (touchMode == SCROLL) {
-                    if (screenRotation == Configuration.ORIENTATION_PORTRAIT) setIntSp("floating_position_portrait_y", config.positionPortraitY)
-                    else setIntSp("floating_position_landscape_y", config.positionLandscapeY)
+                    if (screenRotation == Configuration.ORIENTATION_PORTRAIT) {
+                        setIntSp("floating_position_portrait_y", config.positionPortraitY)
+                        setIntSp("floating_drag_offset_portrait_x", config.dragOffsetPortraitX)
+                    } else {
+                        setIntSp("floating_position_landscape_y", config.positionLandscapeY)
+                        setIntSp("floating_drag_offset_landscape_x", config.dragOffsetLandscapeX)
+                    }
                     hideLocationIndicator()
                 }
                 touchMode = 0
@@ -463,6 +484,9 @@ class KeepAliveService : AccessibilityService(), SharedPreferences.OnSharedPrefe
         var positionPortraitY: Int,
         var positionLandscapeY: Int,
         //侧边栏透明度
-        var alpha: Float
+        var alpha: Float,
+        //手动拖动后相对于左/右边缘的水平偏移量，让按钮可以自由横向移动，避免被2个freeform窗口盖住
+        var dragOffsetPortraitX: Int = 0,
+        var dragOffsetLandscapeX: Int = 0
     )
 }

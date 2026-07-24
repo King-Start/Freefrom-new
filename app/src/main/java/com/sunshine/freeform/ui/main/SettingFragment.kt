@@ -79,6 +79,8 @@ class SettingFragment : PreferenceFragmentCompat(), Preference.OnPreferenceClick
 
                     putInt("floating_position_portrait_y", 0)
                     putInt("floating_position_landscape_y", 0)
+                    putInt("floating_drag_offset_portrait_x", 0)
+                    putInt("floating_drag_offset_landscape_x", 0)
                     putInt(FreeformView.REMEMBER_X, 0)
                     putInt(FreeformView.REMEMBER_Y, 0)
                     putInt(FreeformView.REMEMBER_LAND_X, 0)
